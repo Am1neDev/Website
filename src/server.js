@@ -277,6 +277,10 @@ app.use((err, _req, res, _next) => {
     return res.status(400).json({ error: err.message });
   }
   console.error(err);
+  // Operational errors (e.g. storage failures) carry an explicit, safe message.
+  if (err && err.expose) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
   res.status(500).json({ error: 'Something went wrong' });
 });
 
@@ -306,6 +310,12 @@ async function start() {
     console.log(`Student Course Portal running at http://localhost:${PORT}`);
     console.log(`  database: ${usingTurso ? 'Turso (cloud)' : 'local SQLite file'}`);
     console.log(`  file storage: ${storageBackend === 'supabase' ? 'Supabase Storage' : 'local disk'}`);
+    if (usingTurso && storageBackend === 'local') {
+      console.warn(
+        '  WARNING: running on a cloud DB but file storage is LOCAL DISK. ' +
+          'Set SUPABASE_URL and SUPABASE_SERVICE_KEY so uploads persist.'
+      );
+    }
   });
 }
 

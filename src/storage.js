@@ -40,7 +40,15 @@ export async function saveFile(buffer, originalName, mime) {
       contentType: mime || 'application/octet-stream',
       upsert: false,
     });
-    if (error) throw new Error(`Upload failed: ${error.message}`);
+    if (error) {
+      const e = new Error(
+        `Storage upload to Supabase bucket "${BUCKET}" failed: ${error.message}. ` +
+          'Check that the bucket exists and SUPABASE_SERVICE_KEY is the service_role key.'
+      );
+      e.status = 502;
+      e.expose = true;
+      throw e;
+    }
   } else {
     await fs.promises.writeFile(path.join(UPLOAD_DIR, key), buffer);
   }

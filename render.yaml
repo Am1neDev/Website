@@ -12,7 +12,7 @@ services:
   - type: web
     name: student-course-portal
     runtime: node
-    plan: starter # needed for the persistent disk; use "free" for a throwaway demo
+    plan: free # needed for the persistent disk; use "free" for a throwaway demo
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/auth/me
@@ -29,7 +29,4 @@ services:
         value: /var/data/db
       - key: UPLOAD_DIR
         value: /var/data/uploads
-    disk:
-      name: portal-storage
-      mountPath: /var/data
-      sizeGB: 1
+  

@@ -8,8 +8,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In production set TURSO_DATABASE_URL (libsql://...) + TURSO_AUTH_TOKEN.
 // Locally, with neither set, we fall back to a plain on-disk SQLite file so
 // the app runs with zero configuration.
-let url = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+// .trim() guards against trailing spaces/newlines from pasted env vars.
+let url = (process.env.TURSO_DATABASE_URL || '').trim();
+const authToken = (process.env.TURSO_AUTH_TOKEN || '').trim();
+
+const isRemote = /^(libsql|wss|ws|https|http):\/\//i.test(url);
+
+if (isRemote && !authToken) {
+  throw new Error(
+    'TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is missing or empty. ' +
+      'Create a *database* auth token in Turso (turso db tokens create <db>) ' +
+      'and set TURSO_AUTH_TOKEN in your environment.'
+  );
+}
 
 if (!url) {
   const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
@@ -19,7 +30,7 @@ if (!url) {
 
 const client = createClient(authToken ? { url, authToken } : { url });
 
-export const usingTurso = Boolean(process.env.TURSO_DATABASE_URL);
+export const usingTurso = isRemote;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
@@ -62,7 +73,21 @@ const SCHEMA = `
 `;
 
 export async function initSchema() {
-  await client.executeMultiple(SCHEMA);
+  try {
+    await client.executeMultiple(SCHEMA);
+  } catch (err) {
+    if (isRemote && (err?.cause?.status === 401 || /401/.test(String(err?.message)))) {
+      throw new Error(
+        'Turso rejected the connection (HTTP 401 = bad credentials). Check that:\n' +
+          '  1. TURSO_AUTH_TOKEN is a *database auth token* (turso db tokens create <db>),\n' +
+          '     not a Turso platform/API token.\n' +
+          '  2. The token has no extra spaces or line breaks.\n' +
+          '  3. TURSO_DATABASE_URL points to the same database the token was made for.\n' +
+          `Current URL: ${url}`
+      );
+    }
+    throw err;
+  }
 }
 
 // Thin async helpers that keep the call sites readable.

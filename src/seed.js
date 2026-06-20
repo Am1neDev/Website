@@ -1,9 +1,6 @@
 // Seeds a few sample courses so the portal isn't empty on first run.
 // Usage: npm run seed
-import db from './db.js';
-
-const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
-const createdBy = admin ? admin.id : null;
+import { initSchema, get, run } from './db.js';
 
 const samples = [
   {
@@ -35,18 +32,27 @@ const samples = [
   },
 ];
 
-const insert = db.prepare(
-  `INSERT INTO courses (code, title, description, department, level, semester, teacher, created_by)
-   VALUES (@code, @title, @description, @department, @level, @semester, @teacher, @created_by)`
-);
+async function seed() {
+  await initSchema();
+  const admin = await get("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1");
+  const createdBy = admin ? admin.id : null;
 
-let added = 0;
-for (const s of samples) {
-  const exists = db.prepare('SELECT id FROM courses WHERE code = ?').get(s.code);
-  if (!exists) {
-    insert.run({ ...s, created_by: createdBy });
-    added++;
+  let added = 0;
+  for (const s of samples) {
+    const exists = await get('SELECT id FROM courses WHERE code = ?', [s.code]);
+    if (!exists) {
+      await run(
+        `INSERT INTO courses (code, title, description, department, level, semester, teacher, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [s.code, s.title, s.description, s.department, s.level, s.semester, s.teacher, createdBy]
+      );
+      added++;
+    }
   }
+  console.log(`Seed complete. Added ${added} new course(s).`);
 }
 
-console.log(`Seed complete. Added ${added} new course(s).`);
+seed().catch((err) => {
+  console.error('Seed failed:', err);
+  process.exit(1);
+});

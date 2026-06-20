@@ -17,10 +17,17 @@ upload files**.
 ## Tech stack
 
 - **Backend:** Node.js + Express
-- **Database:** SQLite (`better-sqlite3`)
+- **Database:** SQLite via libSQL (`@libsql/client`) — a local file in dev,
+  free hosted [Turso](https://turso.tech) in production
+- **File storage:** local disk in dev, free [Supabase Storage](https://supabase.com)
+  in production
 - **Auth:** JWT in an httpOnly cookie, passwords hashed with bcrypt
-- **Uploads:** Multer (stored under `uploads/`)
+- **Uploads:** Multer (in-memory) handed to the storage layer
 - **Frontend:** Vanilla HTML/CSS/JS single-page app (no build step)
+
+The database and storage backends switch automatically based on environment
+variables, so the same code runs with zero config locally and on free cloud
+services in production. See **[DEPLOY.md](./DEPLOY.md)** for the free hosting guide.
 
 ## Getting started
 
@@ -85,10 +92,13 @@ variables (defaults shown):
 .
 ├── src/
 │   ├── server.js   # Express app, routes, bootstrap
-│   ├── db.js       # SQLite connection + schema
+│   ├── db.js       # libSQL (local file or Turso) connection + schema
+│   ├── storage.js  # File storage (local disk or Supabase Storage)
 │   ├── auth.js     # JWT + bcrypt helpers and route guards
 │   └── seed.js     # Sample data
 ├── public/         # Frontend (index.html, styles.css, app.js)
-├── uploads/        # Uploaded files (gitignored)
-└── data/           # SQLite database (gitignored)
+├── uploads/        # Uploaded files in local dev (gitignored)
+├── data/           # SQLite database in local dev (gitignored)
+├── render.yaml     # Render deployment blueprint
+└── DEPLOY.md       # Free hosting guide (Render + Turso + Supabase)
 ```

@@ -2,11 +2,10 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import path from 'node:path';
-import fs from 'node:fs';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import db from './db.js';
+import { initSchema, usingTurso, get, all, run } from './db.js';
+import { saveFile, readFile, deleteFile, storageBackend } from './storage.js';
 import {
   hashPassword,
   verifyPassword,
@@ -20,9 +19,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-// UPLOAD_DIR lets hosts (e.g. Render) store uploads on a persistent disk.
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(ROOT, 'uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const PORT = process.env.PORT || 3000;
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 50);
@@ -32,20 +28,16 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(attachUser);
+app.use((req, res, next) => attachUser(req, res, next).catch(next));
 
-/* ------------------------------------------------------------------ */
-/* File uploads                                                        */
-/* ------------------------------------------------------------------ */
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
-  },
+// Files are held in memory so they can go to either Supabase or local disk.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 },
 });
-const upload = multer({ storage, limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 } });
+
+// Wraps an async route so rejected promises reach the error handler.
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -55,15 +47,16 @@ function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role };
 }
 
-function fileCountFor(courseId) {
-  return db.prepare('SELECT COUNT(*) AS n FROM files WHERE course_id = ?').get(courseId).n;
+async function fileCountFor(courseId) {
+  const row = await get('SELECT COUNT(*) AS n FROM files WHERE course_id = ?', [courseId]);
+  return row.n;
 }
 
 /* ------------------------------------------------------------------ */
 /* Auth routes                                                         */
 /* ------------------------------------------------------------------ */
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', wrap(async (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
@@ -74,30 +67,30 @@ app.post('/api/auth/register', (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
-  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const exists = await get('SELECT id FROM users WHERE email = ?', [email]);
   if (exists) return res.status(409).json({ error: 'An account with this email already exists' });
 
   // Self-registration always creates a student. Admins are provisioned separately.
-  const info = db
-    .prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)')
-    .run(name, email, hashPassword(password), 'student');
-
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+  const info = await run(
+    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+    [name, email, hashPassword(password), 'student']
+  );
+  const user = await get('SELECT * FROM users WHERE id = ?', [info.lastInsertRowid]);
   setAuthCookie(res, signToken(user));
   res.status(201).json({ user: publicUser(user) });
-});
+}));
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', wrap(async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const user = await get('SELECT * FROM users WHERE email = ?', [email]);
   if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
   setAuthCookie(res, signToken(user));
   res.json({ user: publicUser(user) });
-});
+}));
 
 app.post('/api/auth/logout', (_req, res) => {
   clearAuthCookie(res);
@@ -113,50 +106,50 @@ app.get('/api/auth/me', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 // Search / list courses. Students use ?q= to find classes.
-app.get('/api/courses', (req, res) => {
+app.get('/api/courses', wrap(async (req, res) => {
   const q = (req.query.q || '').trim();
   let rows;
   if (q) {
     const like = `%${q}%`;
-    rows = db
-      .prepare(
-        `SELECT * FROM courses
-         WHERE code LIKE ? OR title LIKE ? OR description LIKE ?
-            OR department LIKE ? OR teacher LIKE ? OR level LIKE ?
-         ORDER BY created_at DESC`
-      )
-      .all(like, like, like, like, like, like);
+    rows = await all(
+      `SELECT * FROM courses
+       WHERE code LIKE ? OR title LIKE ? OR description LIKE ?
+          OR department LIKE ? OR teacher LIKE ? OR level LIKE ?
+       ORDER BY created_at DESC`,
+      [like, like, like, like, like, like]
+    );
   } else {
-    rows = db.prepare('SELECT * FROM courses ORDER BY created_at DESC').all();
+    rows = await all('SELECT * FROM courses ORDER BY created_at DESC');
   }
-  res.json({ courses: rows.map((c) => ({ ...c, fileCount: fileCountFor(c.id) })) });
-});
+  const courses = [];
+  for (const c of rows) {
+    courses.push({ ...c, fileCount: await fileCountFor(c.id) });
+  }
+  res.json({ courses });
+}));
 
 // Course detail with its files.
-app.get('/api/courses/:id', (req, res) => {
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+app.get('/api/courses/:id', wrap(async (req, res) => {
+  const course = await get('SELECT * FROM courses WHERE id = ?', [req.params.id]);
   if (!course) return res.status(404).json({ error: 'Course not found' });
-  const files = db
-    .prepare(
-      `SELECT id, category, title, original_name, size, mime, created_at
-       FROM files WHERE course_id = ? ORDER BY category, created_at DESC`
-    )
-    .all(course.id);
+  const files = await all(
+    `SELECT id, category, title, original_name, size, mime, created_at
+     FROM files WHERE course_id = ? ORDER BY category, created_at DESC`,
+    [course.id]
+  );
   res.json({ course, files });
-});
+}));
 
 // Create a course — admin only.
-app.post('/api/courses', requireAdmin, (req, res) => {
+app.post('/api/courses', requireAdmin, wrap(async (req, res) => {
   const code = (req.body.code || '').trim();
   const title = (req.body.title || '').trim();
   if (!code || !title) return res.status(400).json({ error: 'Course code and title are required' });
 
-  const info = db
-    .prepare(
-      `INSERT INTO courses (code, title, description, department, level, semester, teacher, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
+  const info = await run(
+    `INSERT INTO courses (code, title, description, department, level, semester, teacher, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       code,
       title,
       (req.body.description || '').trim(),
@@ -164,104 +157,110 @@ app.post('/api/courses', requireAdmin, (req, res) => {
       (req.body.level || '').trim(),
       (req.body.semester || '').trim(),
       (req.body.teacher || '').trim(),
-      req.user.id
-    );
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(info.lastInsertRowid);
+      req.user.id,
+    ]
+  );
+  const course = await get('SELECT * FROM courses WHERE id = ?', [info.lastInsertRowid]);
   res.status(201).json({ course });
-});
+}));
 
 // Update a course — admin only.
-app.put('/api/courses/:id', requireAdmin, (req, res) => {
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+app.put('/api/courses/:id', requireAdmin, wrap(async (req, res) => {
+  const course = await get('SELECT * FROM courses WHERE id = ?', [req.params.id]);
   if (!course) return res.status(404).json({ error: 'Course not found' });
 
-  db.prepare(
+  await run(
     `UPDATE courses SET code = ?, title = ?, description = ?, department = ?,
-       level = ?, semester = ?, teacher = ? WHERE id = ?`
-  ).run(
-    (req.body.code ?? course.code).trim(),
-    (req.body.title ?? course.title).trim(),
-    (req.body.description ?? course.description).trim(),
-    (req.body.department ?? course.department).trim(),
-    (req.body.level ?? course.level).trim(),
-    (req.body.semester ?? course.semester).trim(),
-    (req.body.teacher ?? course.teacher).trim(),
-    course.id
+       level = ?, semester = ?, teacher = ? WHERE id = ?`,
+    [
+      (req.body.code ?? course.code).trim(),
+      (req.body.title ?? course.title).trim(),
+      (req.body.description ?? course.description).trim(),
+      (req.body.department ?? course.department).trim(),
+      (req.body.level ?? course.level).trim(),
+      (req.body.semester ?? course.semester).trim(),
+      (req.body.teacher ?? course.teacher).trim(),
+      course.id,
+    ]
   );
-  res.json({ course: db.prepare('SELECT * FROM courses WHERE id = ?').get(course.id) });
-});
+  res.json({ course: await get('SELECT * FROM courses WHERE id = ?', [course.id]) });
+}));
 
-// Delete a course (and its files on disk) — admin only.
-app.delete('/api/courses/:id', requireAdmin, (req, res) => {
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+// Delete a course (and its files in storage + DB) — admin only.
+app.delete('/api/courses/:id', requireAdmin, wrap(async (req, res) => {
+  const course = await get('SELECT * FROM courses WHERE id = ?', [req.params.id]);
   if (!course) return res.status(404).json({ error: 'Course not found' });
 
-  const files = db.prepare('SELECT stored_name FROM files WHERE course_id = ?').all(course.id);
-  for (const f of files) {
-    fs.rm(path.join(UPLOAD_DIR, f.stored_name), { force: true }, () => {});
-  }
-  db.prepare('DELETE FROM courses WHERE id = ?').run(course.id);
+  const files = await all('SELECT stored_name FROM files WHERE course_id = ?', [course.id]);
+  for (const f of files) await deleteFile(f.stored_name);
+  // Remove file rows explicitly so it works whether or not FK cascade is on.
+  await run('DELETE FROM files WHERE course_id = ?', [course.id]);
+  await run('DELETE FROM courses WHERE id = ?', [course.id]);
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------------ */
 /* File routes                                                         */
 /* ------------------------------------------------------------------ */
 
 // Upload a file to a course — admin only.
-app.post('/api/courses/:id/files', requireAdmin, upload.single('file'), (req, res) => {
-  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
-  if (!course) {
-    if (req.file) fs.rm(req.file.path, { force: true }, () => {});
-    return res.status(404).json({ error: 'Course not found' });
-  }
+app.post('/api/courses/:id/files', requireAdmin, upload.single('file'), wrap(async (req, res) => {
+  const course = await get('SELECT * FROM courses WHERE id = ?', [req.params.id]);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   let category = (req.body.category || 'Course').trim();
   if (!FILE_CATEGORIES.includes(category)) category = 'Other';
   const title = (req.body.title || req.file.originalname).trim();
 
-  const info = db
-    .prepare(
-      `INSERT INTO files (course_id, category, title, original_name, stored_name, size, mime, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
+  const storedName = await saveFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+
+  const info = await run(
+    `INSERT INTO files (course_id, category, title, original_name, stored_name, size, mime, uploaded_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       course.id,
       category,
       title,
       req.file.originalname,
-      req.file.filename,
+      storedName,
       req.file.size,
       req.file.mimetype,
-      req.user.id
-    );
-  const file = db
-    .prepare('SELECT id, category, title, original_name, size, mime, created_at FROM files WHERE id = ?')
-    .get(info.lastInsertRowid);
+      req.user.id,
+    ]
+  );
+  const file = await get(
+    'SELECT id, category, title, original_name, size, mime, created_at FROM files WHERE id = ?',
+    [info.lastInsertRowid]
+  );
   res.status(201).json({ file });
-});
+}));
 
 // Download / view a file — any authenticated user (students included).
-app.get('/api/files/:id/download', requireAuth, (req, res) => {
-  const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
+app.get('/api/files/:id/download', requireAuth, wrap(async (req, res) => {
+  const file = await get('SELECT * FROM files WHERE id = ?', [req.params.id]);
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  const filePath = path.join(UPLOAD_DIR, file.stored_name);
-  if (!fs.existsSync(filePath)) return res.status(410).json({ error: 'File is no longer available' });
+  const buffer = await readFile(file.stored_name);
+  if (!buffer) return res.status(410).json({ error: 'File is no longer available' });
 
-  res.download(filePath, file.original_name);
-});
+  res.setHeader('Content-Type', file.mime || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${file.original_name.replace(/"/g, '')}"`
+  );
+  res.send(buffer);
+}));
 
 // Delete a file — admin only.
-app.delete('/api/files/:id', requireAdmin, (req, res) => {
-  const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
+app.delete('/api/files/:id', requireAdmin, wrap(async (req, res) => {
+  const file = await get('SELECT * FROM files WHERE id = ?', [req.params.id]);
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  fs.rm(path.join(UPLOAD_DIR, file.stored_name), { force: true }, () => {});
-  db.prepare('DELETE FROM files WHERE id = ?').run(file.id);
+  await deleteFile(file.stored_name);
+  await run('DELETE FROM files WHERE id = ?', [file.id]);
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------------ */
 /* Static frontend + error handling                                   */
@@ -285,25 +284,34 @@ app.use((err, _req, res, _next) => {
 /* Bootstrap first admin                                              */
 /* ------------------------------------------------------------------ */
 
-function ensureAdmin() {
+async function ensureAdmin() {
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@example.com').toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(adminEmail);
+  const existing = await get('SELECT id FROM users WHERE email = ?', [adminEmail]);
   if (!existing) {
-    db.prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)').run(
+    await run('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)', [
       'Administrator',
       adminEmail,
       hashPassword(adminPassword),
-      'admin'
-    );
+      'admin',
+    ]);
     console.log(`Created default admin account: ${adminEmail} / ${adminPassword}`);
   }
 }
 
-ensureAdmin();
+async function start() {
+  await initSchema();
+  await ensureAdmin();
+  app.listen(PORT, () => {
+    console.log(`Student Course Portal running at http://localhost:${PORT}`);
+    console.log(`  database: ${usingTurso ? 'Turso (cloud)' : 'local SQLite file'}`);
+    console.log(`  file storage: ${storageBackend === 'supabase' ? 'Supabase Storage' : 'local disk'}`);
+  });
+}
 
-app.listen(PORT, () => {
-  console.log(`Student Course Portal running at http://localhost:${PORT}`);
+start().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
 
 export default app;

@@ -1,18 +1,20 @@
-# Render Blueprint for the Student Course Portal
+# Render Blueprint for the Student Course Portal (100% free setup).
 # Docs: https://render.com/docs/blueprint-spec
 #
-# This provisions one Node web service with a persistent disk so the SQLite
-# database and uploaded files survive restarts and deploys.
+# The app runs on Render's FREE web service. Because free instances have no
+# persistent disk, data lives in two free external services instead:
+#   - Turso             -> the SQLite database  (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN)
+#   - Supabase Storage  -> uploaded files       (SUPABASE_URL / SUPABASE_SERVICE_KEY)
 #
-# NOTE: Persistent disks require a paid instance type (e.g. "starter").
-# On the free plan the filesystem is ephemeral, so the database and uploads
-# reset on every deploy/restart — fine for a demo, not for real data.
+# See DEPLOY.md for click-by-click setup of those two accounts.
+# Note: free Render services sleep after ~15 min of inactivity and cold-start
+# on the next visit. Your data is NOT lost (it lives in Turso/Supabase).
 
 services:
   - type: web
     name: student-course-portal
     runtime: node
-    plan: free # needed for the persistent disk; use "free" for a throwaway demo
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/auth/me
@@ -20,13 +22,18 @@ services:
       - key: JWT_SECRET
         generateValue: true # Render generates a strong random secret
       - key: ADMIN_EMAIL
-        sync: false # set this yourself in the dashboard
+        sync: false # set in the dashboard
       - key: ADMIN_PASSWORD
-        sync: false # set this yourself in the dashboard
+        sync: false # set in the dashboard
       - key: MAX_UPLOAD_MB
         value: "50"
-      - key: DATA_DIR
-        value: /var/data/db
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
-  
+      - key: TURSO_DATABASE_URL
+        sync: false # from Turso (libsql://...)
+      - key: TURSO_AUTH_TOKEN
+        sync: false # from Turso
+      - key: SUPABASE_URL
+        sync: false # from Supabase project settings
+      - key: SUPABASE_SERVICE_KEY
+        sync: false # Supabase service_role key
+      - key: SUPABASE_BUCKET
+        value: course-files

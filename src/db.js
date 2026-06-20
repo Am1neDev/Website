@@ -1,18 +1,27 @@
-import Database from 'better-sqlite3';
+import { createClient } from '@libsql/client';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// DATA_DIR lets hosts (e.g. Render) point the database at a persistent disk.
-const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'portal.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+// In production set TURSO_DATABASE_URL (libsql://...) + TURSO_AUTH_TOKEN.
+// Locally, with neither set, we fall back to a plain on-disk SQLite file so
+// the app runs with zero configuration.
+let url = process.env.TURSO_DATABASE_URL;
+const authToken = process.env.TURSO_AUTH_TOKEN;
 
-db.exec(`
+if (!url) {
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  url = `file:${path.join(dataDir, 'portal.db')}`;
+}
+
+const client = createClient(authToken ? { url, authToken } : { url });
+
+export const usingTurso = Boolean(process.env.TURSO_DATABASE_URL);
+
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT    NOT NULL,
@@ -31,7 +40,7 @@ db.exec(`
     level       TEXT    NOT NULL DEFAULT '',
     semester    TEXT    NOT NULL DEFAULT '',
     teacher     TEXT    NOT NULL DEFAULT '',
-    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_by  INTEGER,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -45,11 +54,36 @@ db.exec(`
     stored_name   TEXT    NOT NULL,
     size          INTEGER NOT NULL DEFAULT 0,
     mime          TEXT    NOT NULL DEFAULT 'application/octet-stream',
-    uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_by   INTEGER,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE INDEX IF NOT EXISTS idx_files_course ON files(course_id);
-`);
+`;
 
-export default db;
+export async function initSchema() {
+  await client.executeMultiple(SCHEMA);
+}
+
+// Thin async helpers that keep the call sites readable.
+export async function get(sql, args = []) {
+  const res = await client.execute({ sql, args });
+  return res.rows[0];
+}
+
+export async function all(sql, args = []) {
+  const res = await client.execute({ sql, args });
+  return res.rows;
+}
+
+// Returns the result; use `.lastInsertRowid` (as a Number) for inserts.
+export async function run(sql, args = []) {
+  const res = await client.execute({ sql, args });
+  return {
+    ...res,
+    lastInsertRowid:
+      res.lastInsertRowid != null ? Number(res.lastInsertRowid) : undefined,
+  };
+}
+
+export default client;

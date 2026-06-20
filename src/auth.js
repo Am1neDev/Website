@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import db from './db.js';
+import { get } from './db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-insecure-secret-change-me';
 const TOKEN_TTL = '7d';
@@ -32,15 +32,13 @@ export function clearAuthCookie(res) {
 
 // Populates req.user from the auth cookie (or Authorization header) if present.
 // Never blocks the request; route guards decide what to do with the result.
-export function attachUser(req, _res, next) {
+export async function attachUser(req, _res, next) {
   const headerToken = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   const token = req.cookies?.token || headerToken;
   if (token) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
-      const user = db
-        .prepare('SELECT id, name, email, role FROM users WHERE id = ?')
-        .get(payload.id);
+      const user = await get('SELECT id, name, email, role FROM users WHERE id = ?', [payload.id]);
       if (user) req.user = user;
     } catch {
       // invalid / expired token — treat as anonymous

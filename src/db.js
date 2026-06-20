@@ -49,6 +49,7 @@ const SCHEMA = `
     description TEXT    NOT NULL DEFAULT '',
     department  TEXT    NOT NULL DEFAULT '',
     level       TEXT    NOT NULL DEFAULT '',
+    year        TEXT    NOT NULL DEFAULT '',
     semester    TEXT    NOT NULL DEFAULT '',
     teacher     TEXT    NOT NULL DEFAULT '',
     created_by  INTEGER,
@@ -72,9 +73,20 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_files_course ON files(course_id);
 `;
 
+// Adds a column to an existing table if it isn't already present.
+// Needed because CREATE TABLE IF NOT EXISTS won't alter tables created by
+// an earlier version of the app (e.g. the production Turso database).
+async function ensureColumn(table, column, definition) {
+  const cols = await all(`PRAGMA table_info(${table})`);
+  if (!cols.some((c) => c.name === column)) {
+    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 export async function initSchema() {
   try {
     await client.executeMultiple(SCHEMA);
+    await ensureColumn('courses', 'year', "TEXT NOT NULL DEFAULT ''");
   } catch (err) {
     if (isRemote && (err?.cause?.status === 401 || /401/.test(String(err?.message)))) {
       throw new Error(

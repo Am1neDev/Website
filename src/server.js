@@ -22,6 +22,9 @@ const ROOT = path.join(__dirname, '..');
 const PORT = process.env.PORT || 3000;
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 50);
 const FILE_CATEGORIES = ['Course', 'TD', 'TP', 'Exam', 'Other'];
+// Academic years/programs a course can belong to. '' means "unassigned".
+const COURSE_YEARS = ['L1', 'L2', 'L3 ISIL', 'L3 SIQ'];
+const normalizeYear = (y) => (COURSE_YEARS.includes((y || '').trim()) ? (y || '').trim() : '');
 
 const app = express();
 app.use(express.json());
@@ -100,6 +103,11 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.user ? publicUser(req.user) : null });
 });
 
+// The list of academic years/programs courses can be filed under.
+app.get('/api/years', (_req, res) => {
+  res.json({ years: COURSE_YEARS });
+});
+
 /* ------------------------------------------------------------------ */
 /* Course routes (read = everyone, write = admin only)                */
 /* ------------------------------------------------------------------ */
@@ -107,19 +115,27 @@ app.get('/api/auth/me', (req, res) => {
 // Search / list courses. Students use ?q= to find classes.
 app.get('/api/courses', wrap(async (req, res) => {
   const q = (req.query.q || '').trim();
-  let rows;
+  const year = normalizeYear(req.query.year);
+
+  const where = [];
+  const args = [];
   if (q) {
     const like = `%${q}%`;
-    rows = await all(
-      `SELECT * FROM courses
-       WHERE code LIKE ? OR title LIKE ? OR description LIKE ?
-          OR department LIKE ? OR teacher LIKE ? OR level LIKE ?
-       ORDER BY created_at DESC`,
-      [like, like, like, like, like, like]
+    where.push(
+      '(code LIKE ? OR title LIKE ? OR description LIKE ? OR department LIKE ? OR teacher LIKE ?)'
     );
-  } else {
-    rows = await all('SELECT * FROM courses ORDER BY created_at DESC');
+    args.push(like, like, like, like, like);
   }
+  if (year) {
+    where.push('year = ?');
+    args.push(year);
+  }
+  const sql =
+    'SELECT * FROM courses' +
+    (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+    ' ORDER BY created_at DESC';
+  const rows = await all(sql, args);
+
   const courses = [];
   for (const c of rows) {
     courses.push({ ...c, fileCount: await fileCountFor(c.id) });
@@ -146,14 +162,15 @@ app.post('/api/courses', requireAdmin, wrap(async (req, res) => {
   if (!code || !title) return res.status(400).json({ error: 'Course code and title are required' });
 
   const info = await run(
-    `INSERT INTO courses (code, title, description, department, level, semester, teacher, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO courses (code, title, description, department, level, year, semester, teacher, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       code,
       title,
       (req.body.description || '').trim(),
       (req.body.department || '').trim(),
       (req.body.level || '').trim(),
+      normalizeYear(req.body.year),
       (req.body.semester || '').trim(),
       (req.body.teacher || '').trim(),
       req.user.id,
@@ -170,13 +187,14 @@ app.put('/api/courses/:id', requireAdmin, wrap(async (req, res) => {
 
   await run(
     `UPDATE courses SET code = ?, title = ?, description = ?, department = ?,
-       level = ?, semester = ?, teacher = ? WHERE id = ?`,
+       level = ?, year = ?, semester = ?, teacher = ? WHERE id = ?`,
     [
       (req.body.code ?? course.code).trim(),
       (req.body.title ?? course.title).trim(),
       (req.body.description ?? course.description).trim(),
       (req.body.department ?? course.department).trim(),
       (req.body.level ?? course.level).trim(),
+      req.body.year !== undefined ? normalizeYear(req.body.year) : course.year,
       (req.body.semester ?? course.semester).trim(),
       (req.body.teacher ?? course.teacher).trim(),
       course.id,
@@ -233,6 +251,39 @@ app.post('/api/courses/:id/files', requireAdmin, upload.single('file'), wrap(asy
     [info.lastInsertRowid]
   );
   res.status(201).json({ file });
+}));
+
+// Edit a file's title/category and optionally replace its contents — admin only.
+app.put('/api/files/:id', requireAdmin, upload.single('file'), wrap(async (req, res) => {
+  const file = await get('SELECT * FROM files WHERE id = ?', [req.params.id]);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  let category = (req.body.category || file.category).trim();
+  if (!FILE_CATEGORIES.includes(category)) category = 'Other';
+  const title = (req.body.title || file.title).trim();
+
+  let { stored_name: storedName, original_name: originalName, size, mime } = file;
+
+  // If a replacement file was uploaded, store it and remove the old object.
+  if (req.file) {
+    const newKey = await saveFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    await deleteFile(storedName);
+    storedName = newKey;
+    originalName = req.file.originalname;
+    size = req.file.size;
+    mime = req.file.mimetype;
+  }
+
+  await run(
+    `UPDATE files SET category = ?, title = ?, original_name = ?, stored_name = ?, size = ?, mime = ?
+     WHERE id = ?`,
+    [category, title, originalName, storedName, size, mime, file.id]
+  );
+  const updated = await get(
+    'SELECT id, category, title, original_name, size, mime, created_at FROM files WHERE id = ?',
+    [file.id]
+  );
+  res.json({ file: updated });
 }));
 
 // Download / view a file — open to everyone (students need no account).

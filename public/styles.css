@@ -175,6 +175,34 @@ body {
   border-radius: 999px;
 }
 .tag.files { background: #ede9fe; color: var(--primary-dark); font-weight: 600; }
+.tag.year { background: #dcfce7; color: #15803d; font-weight: 600; }
+
+/* ---------- Year filter chips ---------- */
+.year-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px auto 0;
+  max-width: 640px;
+}
+.year-chip {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.year-chip:hover { background: var(--surface); }
+.year-chip.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
 
 /* ---------- Course detail ---------- */
 .detail-head {

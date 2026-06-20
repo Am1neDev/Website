@@ -4,6 +4,7 @@
 
 const state = {
   user: null,
+  years: ['L1', 'L2', 'L3 ISIL', 'L3 SIQ'], // overwritten from /api/years on boot
 };
 
 const FILE_ICONS = {
@@ -114,39 +115,65 @@ function renderNav() {
 
 /* ---------- Home / search ---------- */
 
+let currentYear = ''; // active year filter on the home page ('' = all)
+
 async function renderHome() {
+  const chips = ['', ...state.years]
+    .map((y) => {
+      const label = y || 'All years';
+      const active = y === currentYear ? ' active' : '';
+      return `<button class="year-chip${active}" data-year="${escapeHtml(y)}">${escapeHtml(label)}</button>`;
+    })
+    .join('');
+
   view().innerHTML = `
     <section class="hero">
       <h1>Find your class, get your files</h1>
-      <p>Search any course to download lectures, TD, TP and past exams.</p>
+      <p>Browse by year, then download lectures, TD, TP and past exams.</p>
       <div class="search-bar">
         <input id="search" type="search" placeholder="Search by course code, title, teacher, department…" />
         <button class="btn btn-primary" id="searchBtn">Search</button>
       </div>
+      <div class="year-chips" id="yearChips">${chips}</div>
     </section>
     <div class="section-head"><h2 id="listTitle">All courses</h2></div>
     <div id="courseList" class="grid"></div>`;
 
   const input = $('#search');
-  const load = async (q) => {
-    $('#listTitle').textContent = q ? `Results for “${q}”` : 'All courses';
+  const load = async () => {
+    const q = input.value.trim();
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (currentYear) params.set('year', currentYear);
+    const qs = params.toString();
+    const label = currentYear ? `${currentYear} courses` : 'All courses';
+    $('#listTitle').textContent = q ? `Results for “${q}”${currentYear ? ` in ${currentYear}` : ''}` : label;
     try {
-      const { courses } = await api(`/courses${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      const { courses } = await api(`/courses${qs ? `?${qs}` : ''}`);
       renderCourseList(courses);
     } catch (e) {
       toast(e.message, 'error');
     }
   };
 
-  $('#searchBtn').onclick = () => load(input.value.trim());
+  $('#yearChips').querySelectorAll('.year-chip').forEach((btn) => {
+    btn.onclick = () => {
+      currentYear = btn.dataset.year;
+      $('#yearChips').querySelectorAll('.year-chip').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      load();
+    };
+  });
+
+  $('#searchBtn').onclick = () => load();
   let debounce;
   input.oninput = () => {
     clearTimeout(debounce);
-    debounce = setTimeout(() => load(input.value.trim()), 250);
+    debounce = setTimeout(load, 250);
   };
-  input.onkeydown = (e) => { if (e.key === 'Enter') load(input.value.trim()); };
+  input.onkeydown = (e) => { if (e.key === 'Enter') load(); };
 
-  load('');
+  load();
 }
 
 function renderCourseList(courses) {
@@ -161,8 +188,8 @@ function renderCourseList(courses) {
   list.innerHTML = '';
   for (const c of courses) {
     const meta = [
+      c.year ? `<span class="tag year">🎓 ${escapeHtml(c.year)}</span>` : '',
       c.department ? `<span class="tag">🏫 ${escapeHtml(c.department)}</span>` : '',
-      c.level ? `<span class="tag">🎯 ${escapeHtml(c.level)}</span>` : '',
       c.teacher ? `<span class="tag">👩‍🏫 ${escapeHtml(c.teacher)}</span>` : '',
       `<span class="tag files">${c.fileCount} file${c.fileCount === 1 ? '' : 's'}</span>`,
     ].join('');
@@ -205,8 +232,8 @@ async function renderCourse(id) {
       <h1>${escapeHtml(course.title)}</h1>
       <p style="color:var(--muted);margin:0">${escapeHtml(course.description || 'No description provided.')}</p>
       <div class="meta-row">
+        ${course.year ? `<span class="tag year">🎓 ${escapeHtml(course.year)}</span>` : ''}
         ${course.department ? `<span class="tag">🏫 ${escapeHtml(course.department)}</span>` : ''}
-        ${course.level ? `<span class="tag">🎯 ${escapeHtml(course.level)}</span>` : ''}
         ${course.semester ? `<span class="tag">📅 ${escapeHtml(course.semester)}</span>` : ''}
         ${course.teacher ? `<span class="tag">👩‍🏫 ${escapeHtml(course.teacher)}</span>` : ''}
       </div>
@@ -255,6 +282,10 @@ function renderFiles(files, refresh) {
       dl.href = `/api/files/${f.id}/download`;
       actions.appendChild(dl);
       if (isAdmin()) {
+        const edit = el('<button class="btn btn-sm">Edit</button>');
+        edit.onclick = () => openFileEditModal(f, refresh);
+        actions.appendChild(edit);
+
         const del = el('<button class="btn btn-sm btn-danger">Delete</button>');
         del.onclick = async () => {
           if (!confirm(`Delete “${f.title}”?`)) return;
@@ -341,6 +372,69 @@ function openUploadModal(course, onDone) {
   modalRoot().appendChild(modal);
 }
 
+/* ---------- Edit-file modal ---------- */
+
+function openFileEditModal(file, onDone) {
+  const cats = ['Course', 'TD', 'TP', 'Exam', 'Other']
+    .map((c) => `<option${c === file.category ? ' selected' : ''}>${c}</option>`)
+    .join('');
+
+  const modal = el(`
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h2>Edit file</h2>
+        <div class="form-error" hidden></div>
+        <div class="field">
+          <label>Category</label>
+          <select id="e-cat">${cats}</select>
+        </div>
+        <div class="field">
+          <label>Title</label>
+          <input id="e-title" value="${escapeHtml(file.title)}" />
+        </div>
+        <div class="field">
+          <label>Replace file (optional)</label>
+          <input id="e-file" type="file" />
+          <small style="color:var(--muted)">Current: ${escapeHtml(file.original_name)} · ${formatSize(file.size)}</small>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="e-cancel">Cancel</button>
+          <button class="btn btn-primary" id="e-submit">Save changes</button>
+        </div>
+      </div>
+    </div>`);
+
+  const close = () => (modalRoot().innerHTML = '');
+  const errBox = modal.querySelector('.form-error');
+  modal.querySelector('#e-cancel').onclick = close;
+  modal.onclick = (e) => { if (e.target === modal) close(); };
+
+  modal.querySelector('#e-submit').onclick = async () => {
+    const title = modal.querySelector('#e-title').value.trim();
+    if (!title) {
+      errBox.textContent = 'Title is required.';
+      errBox.hidden = false;
+      return;
+    }
+    const fd = new FormData();
+    fd.append('category', modal.querySelector('#e-cat').value);
+    fd.append('title', title);
+    const fileInput = modal.querySelector('#e-file');
+    if (fileInput.files.length) fd.append('file', fileInput.files[0]);
+    try {
+      await api(`/files/${file.id}`, { method: 'PUT', body: fd });
+      close();
+      toast('File updated', 'success');
+      onDone();
+    } catch (e) {
+      errBox.textContent = e.message;
+      errBox.hidden = false;
+    }
+  };
+
+  modalRoot().appendChild(modal);
+}
+
 const modalRoot = () => $('#modal-root');
 
 /* ---------- Admin: create / edit course ---------- */
@@ -352,11 +446,15 @@ async function renderAdminCourse(param) {
     return;
   }
   const isNew = param === 'new';
-  let course = { code: '', title: '', description: '', department: '', level: '', semester: '', teacher: '' };
+  let course = { code: '', title: '', description: '', department: '', year: '', semester: '', teacher: '' };
   if (!isNew) {
     try { course = (await api(`/courses/${param}`)).course; }
     catch (e) { view().innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; return; }
   }
+
+  const yearOptions = ['', ...state.years]
+    .map((y) => `<option value="${escapeHtml(y)}"${y === (course.year || '') ? ' selected' : ''}>${escapeHtml(y || '— Unassigned —')}</option>`)
+    .join('');
 
   view().innerHTML = `
     <div class="panel wide">
@@ -374,8 +472,8 @@ async function renderAdminCourse(param) {
       <div class="field"><label>Description</label>
         <textarea id="c-desc" placeholder="What this course covers…">${escapeHtml(course.description)}</textarea></div>
       <div class="row-2">
-        <div class="field"><label>Level</label>
-          <input id="c-level" value="${escapeHtml(course.level)}" placeholder="L1 / Year 1" /></div>
+        <div class="field"><label>Year</label>
+          <select id="c-year">${yearOptions}</select></div>
         <div class="field"><label>Semester</label>
           <input id="c-sem" value="${escapeHtml(course.semester)}" placeholder="Fall 2026" /></div>
       </div>
@@ -395,7 +493,7 @@ async function renderAdminCourse(param) {
       title: $('#c-title').value.trim(),
       description: $('#c-desc').value.trim(),
       department: $('#c-dept').value.trim(),
-      level: $('#c-level').value.trim(),
+      year: $('#c-year').value,
       semester: $('#c-sem').value.trim(),
       teacher: $('#c-teacher').value.trim(),
     };
@@ -468,6 +566,10 @@ async function boot() {
     const { user } = await api('/auth/me');
     state.user = user;
   } catch { /* anonymous */ }
+  try {
+    const { years } = await api('/years');
+    if (Array.isArray(years) && years.length) state.years = years;
+  } catch { /* keep defaults */ }
   renderNav();
   window.addEventListener('hashchange', router);
   router();

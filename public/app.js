@@ -240,7 +240,7 @@ async function renderCourse(id) {
   }
   const { course, files } = data;
 
-  const back = '<a class="btn btn-sm" id="back">← Back</a>';
+  const back = '<button class="btn btn-back" id="back">← Back to courses</button>';
   const adminBtns = isAdmin()
     ? `<button class="btn btn-sm" id="editCourse">Edit</button>
        <button class="btn btn-sm btn-primary" id="uploadFile">+ Upload file</button>

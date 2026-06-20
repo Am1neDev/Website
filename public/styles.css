@@ -122,6 +122,17 @@ body {
 .btn-danger { background: #fee2e2; color: var(--danger); }
 .btn-danger:hover { background: #fecaca; }
 .btn-sm { padding: 6px 10px; font-size: 13px; }
+
+/* Prominent "back to courses" button on the course page */
+.btn-back {
+  background: #fff;
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  font-weight: 700;
+  padding: 9px 18px;
+  box-shadow: var(--shadow);
+}
+.btn-back:hover { background: var(--primary); color: #fff; }
 .btn-block { width: 100%; justify-content: center; }
 
 /* ---------- Cards / grid ---------- */

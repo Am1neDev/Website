@@ -13,7 +13,6 @@ import {
   setAuthCookie,
   clearAuthCookie,
   attachUser,
-  requireAuth,
   requireAdmin,
 } from './auth.js';
 
@@ -236,8 +235,8 @@ app.post('/api/courses/:id/files', requireAdmin, upload.single('file'), wrap(asy
   res.status(201).json({ file });
 }));
 
-// Download / view a file — any authenticated user (students included).
-app.get('/api/files/:id/download', requireAuth, wrap(async (req, res) => {
+// Download / view a file — open to everyone (students need no account).
+app.get('/api/files/:id/download', wrap(async (req, res) => {
   const file = await get('SELECT * FROM files WHERE id = ?', [req.params.id]);
   if (!file) return res.status(404).json({ error: 'File not found' });
 

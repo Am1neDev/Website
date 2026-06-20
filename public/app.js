@@ -105,11 +105,10 @@ function renderNav() {
     };
     nav.appendChild(out);
   } else {
-    const login = el('<button class="btn btn-ghost btn-sm">Log in</button>');
+    // Students don't need accounts; login is only for admins managing content.
+    const login = el('<button class="btn btn-ghost btn-sm">Admin log in</button>');
     login.onclick = () => go('#/login');
-    const reg = el('<button class="btn btn-primary btn-sm">Sign up</button>');
-    reg.onclick = () => go('#/register');
-    nav.append(login, reg);
+    nav.append(login);
   }
 }
 
@@ -251,15 +250,10 @@ function renderFiles(files, refresh) {
           <div class="actions"></div>
         </div>`);
       const actions = row.querySelector('.actions');
-      if (state.user) {
-        const dl = el('<a class="btn btn-sm btn-primary">Download</a>');
-        dl.href = `/api/files/${f.id}/download`;
-        actions.appendChild(dl);
-      } else {
-        const lock = el('<button class="btn btn-sm">🔒 Log in to download</button>');
-        lock.onclick = () => go('#/login');
-        actions.appendChild(lock);
-      }
+      // Downloads are open to everyone — no account required.
+      const dl = el('<a class="btn btn-sm btn-primary">Download</a>');
+      dl.href = `/api/files/${f.id}/download`;
+      actions.appendChild(dl);
       if (isAdmin()) {
         const del = el('<button class="btn btn-sm btn-danger">Delete</button>');
         del.onclick = async () => {
@@ -429,22 +423,18 @@ function renderAuth(mode) {
   const isLogin = mode === 'login';
   view().innerHTML = `
     <div class="panel">
-      <h2>${isLogin ? 'Welcome back' : 'Create your account'}</h2>
-      <p class="sub">${isLogin ? 'Log in to download course files.' : 'Sign up as a student to access files.'}</p>
+      <h2>${isLogin ? 'Admin log in' : 'Create your account'}</h2>
+      <p class="sub">${isLogin
+        ? 'Students don’t need an account — just browse and download. This login is for admins who manage courses and files.'
+        : 'Create an account.'}</p>
       <div class="form-error" hidden></div>
       ${isLogin ? '' : `<div class="field"><label>Full name</label><input id="a-name" placeholder="Jane Student" /></div>`}
       <div class="field"><label>Email</label><input id="a-email" type="email" placeholder="you@school.edu" /></div>
       <div class="field"><label>Password</label><input id="a-pass" type="password" placeholder="••••••••" /></div>
       <button class="btn btn-primary btn-block" id="a-submit">${isLogin ? 'Log in' : 'Sign up'}</button>
-      <p class="switch-link">
-        ${isLogin
-          ? 'No account? <a id="a-switch">Sign up</a>'
-          : 'Already have an account? <a id="a-switch">Log in</a>'}
-      </p>
     </div>`;
 
   const errBox = $('.form-error');
-  $('#a-switch').onclick = () => go(isLogin ? '#/register' : '#/login');
 
   const submit = async () => {
     const body = {

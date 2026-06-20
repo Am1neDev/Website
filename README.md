@@ -4,6 +4,16 @@ A web application where **students search for their classes and download all the
 files they need** (Courses, TD, TP, exams) and **only admins can add courses and
 upload files**.
 
+## Screenshots
+
+| Student home & search | Course page (files by type) |
+| --- | --- |
+| ![Home](screenshots/1-home.png) | ![Course](screenshots/3-course.png) |
+
+| Admin view | Add-a-course form (admin only) |
+| --- | --- |
+| ![Admin home](screenshots/2-home-admin.png) | ![New course](screenshots/4-admin-new.png) |
+
 ## Features
 
 - 🔎 **Search** courses by code, title, teacher, department or level.

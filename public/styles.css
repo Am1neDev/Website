@@ -176,15 +176,32 @@ body {
 }
 .tag.files { background: #ede9fe; color: var(--primary-dark); font-weight: 600; }
 .tag.year { background: #dcfce7; color: #15803d; font-weight: 600; }
+.tag.sem { background: #fef3c7; color: #b45309; font-weight: 600; }
 
-/* ---------- Year filter chips ---------- */
+/* ---------- Year / semester filter chips ---------- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.filter-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 70px;
+  text-align: right;
+}
 .year-chips {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-  margin: 18px auto 0;
-  max-width: 640px;
+  margin: 0;
 }
 .year-chip {
   border: 1px solid var(--border);

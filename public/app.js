@@ -5,6 +5,7 @@
 const state = {
   user: null,
   years: ['L1', 'L2', 'L3 ISIL', 'L3 SIQ'], // overwritten from /api/years on boot
+  semesters: ['Semester 1', 'Semester 2'], // overwritten from /api/semesters on boot
 };
 
 const FILE_ICONS = {
@@ -116,25 +117,35 @@ function renderNav() {
 /* ---------- Home / search ---------- */
 
 let currentYear = ''; // active year filter on the home page ('' = all)
+let currentSemester = ''; // active semester filter ('' = all)
 
-async function renderHome() {
-  const chips = ['', ...state.years]
-    .map((y) => {
-      const label = y || 'All years';
-      const active = y === currentYear ? ' active' : '';
-      return `<button class="year-chip${active}" data-year="${escapeHtml(y)}">${escapeHtml(label)}</button>`;
+function chipRow(values, allLabel, active, attr) {
+  return ['', ...values]
+    .map((v) => {
+      const label = v || allLabel;
+      const on = v === active ? ' active' : '';
+      return `<button class="year-chip${on}" data-${attr}="${escapeHtml(v)}">${escapeHtml(label)}</button>`;
     })
     .join('');
+}
 
+async function renderHome() {
   view().innerHTML = `
     <section class="hero">
       <h1>Find your class, get your files</h1>
-      <p>Browse by year, then download lectures, TD, TP and past exams.</p>
+      <p>Browse by year and semester, then download lectures, TD, TP and past exams.</p>
       <div class="search-bar">
         <input id="search" type="search" placeholder="Search by course code, title, teacher, department…" />
         <button class="btn btn-primary" id="searchBtn">Search</button>
       </div>
-      <div class="year-chips" id="yearChips">${chips}</div>
+      <div class="filter-row">
+        <span class="filter-label">Year</span>
+        <div class="year-chips" id="yearChips">${chipRow(state.years, 'All years', currentYear, 'year')}</div>
+      </div>
+      <div class="filter-row">
+        <span class="filter-label">Semester</span>
+        <div class="year-chips" id="semChips">${chipRow(state.semesters, 'All semesters', currentSemester, 'sem')}</div>
+      </div>
     </section>
     <div class="section-head"><h2 id="listTitle">All courses</h2></div>
     <div id="courseList" class="grid"></div>`;
@@ -145,9 +156,11 @@ async function renderHome() {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (currentYear) params.set('year', currentYear);
+    if (currentSemester) params.set('semester', currentSemester);
     const qs = params.toString();
-    const label = currentYear ? `${currentYear} courses` : 'All courses';
-    $('#listTitle').textContent = q ? `Results for “${q}”${currentYear ? ` in ${currentYear}` : ''}` : label;
+    const scope = [currentYear, currentSemester].filter(Boolean).join(' · ');
+    const label = scope ? `${scope} courses` : 'All courses';
+    $('#listTitle').textContent = q ? `Results for “${q}”${scope ? ` in ${scope}` : ''}` : label;
     try {
       const { courses } = await api(`/courses${qs ? `?${qs}` : ''}`);
       renderCourseList(courses);
@@ -160,6 +173,14 @@ async function renderHome() {
     btn.onclick = () => {
       currentYear = btn.dataset.year;
       $('#yearChips').querySelectorAll('.year-chip').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      load();
+    };
+  });
+  $('#semChips').querySelectorAll('.year-chip').forEach((btn) => {
+    btn.onclick = () => {
+      currentSemester = btn.dataset.sem;
+      $('#semChips').querySelectorAll('.year-chip').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       load();
     };
@@ -189,6 +210,7 @@ function renderCourseList(courses) {
   for (const c of courses) {
     const meta = [
       c.year ? `<span class="tag year">🎓 ${escapeHtml(c.year)}</span>` : '',
+      c.semester ? `<span class="tag sem">📅 ${escapeHtml(c.semester)}</span>` : '',
       c.department ? `<span class="tag">🏫 ${escapeHtml(c.department)}</span>` : '',
       c.teacher ? `<span class="tag">👩‍🏫 ${escapeHtml(c.teacher)}</span>` : '',
       `<span class="tag files">${c.fileCount} file${c.fileCount === 1 ? '' : 's'}</span>`,
@@ -456,6 +478,13 @@ async function renderAdminCourse(param) {
     .map((y) => `<option value="${escapeHtml(y)}"${y === (course.year || '') ? ' selected' : ''}>${escapeHtml(y || '— Unassigned —')}</option>`)
     .join('');
 
+  // Include any legacy free-text semester value so editing doesn't drop it.
+  const semValues = [...state.semesters];
+  if (course.semester && !semValues.includes(course.semester)) semValues.unshift(course.semester);
+  const semOptions = ['', ...semValues]
+    .map((s) => `<option value="${escapeHtml(s)}"${s === (course.semester || '') ? ' selected' : ''}>${escapeHtml(s || '— Unassigned —')}</option>`)
+    .join('');
+
   view().innerHTML = `
     <div class="panel wide">
       <h2>${isNew ? 'New course' : 'Edit course'}</h2>
@@ -475,7 +504,7 @@ async function renderAdminCourse(param) {
         <div class="field"><label>Year</label>
           <select id="c-year">${yearOptions}</select></div>
         <div class="field"><label>Semester</label>
-          <input id="c-sem" value="${escapeHtml(course.semester)}" placeholder="Fall 2026" /></div>
+          <select id="c-sem">${semOptions}</select></div>
       </div>
       <div class="field"><label>Teacher</label>
         <input id="c-teacher" value="${escapeHtml(course.teacher)}" placeholder="Dr. Smith" /></div>
@@ -569,6 +598,10 @@ async function boot() {
   try {
     const { years } = await api('/years');
     if (Array.isArray(years) && years.length) state.years = years;
+  } catch { /* keep defaults */ }
+  try {
+    const { semesters } = await api('/semesters');
+    if (Array.isArray(semesters) && semesters.length) state.semesters = semesters;
   } catch { /* keep defaults */ }
   renderNav();
   window.addEventListener('hashchange', router);

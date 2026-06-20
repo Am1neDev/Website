@@ -25,6 +25,10 @@ const FILE_CATEGORIES = ['Course', 'TD', 'TP', 'Exam', 'Other'];
 // Academic years/programs a course can belong to. '' means "unassigned".
 const COURSE_YEARS = ['L1', 'L2', 'L3 ISIL', 'L3 SIQ'];
 const normalizeYear = (y) => (COURSE_YEARS.includes((y || '').trim()) ? (y || '').trim() : '');
+// Semesters a course can belong to. '' means "unassigned".
+const COURSE_SEMESTERS = ['Semester 1', 'Semester 2'];
+const normalizeSemester = (s) =>
+  COURSE_SEMESTERS.includes((s || '').trim()) ? (s || '').trim() : '';
 
 const app = express();
 app.use(express.json());
@@ -103,9 +107,13 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.user ? publicUser(req.user) : null });
 });
 
-// The list of academic years/programs courses can be filed under.
+// The lists of academic years/programs and semesters courses can be filed under.
 app.get('/api/years', (_req, res) => {
   res.json({ years: COURSE_YEARS });
+});
+
+app.get('/api/semesters', (_req, res) => {
+  res.json({ semesters: COURSE_SEMESTERS });
 });
 
 /* ------------------------------------------------------------------ */
@@ -116,6 +124,7 @@ app.get('/api/years', (_req, res) => {
 app.get('/api/courses', wrap(async (req, res) => {
   const q = (req.query.q || '').trim();
   const year = normalizeYear(req.query.year);
+  const semester = normalizeSemester(req.query.semester);
 
   const where = [];
   const args = [];
@@ -129,6 +138,10 @@ app.get('/api/courses', wrap(async (req, res) => {
   if (year) {
     where.push('year = ?');
     args.push(year);
+  }
+  if (semester) {
+    where.push('semester = ?');
+    args.push(semester);
   }
   const sql =
     'SELECT * FROM courses' +
@@ -171,7 +184,7 @@ app.post('/api/courses', requireAdmin, wrap(async (req, res) => {
       (req.body.department || '').trim(),
       (req.body.level || '').trim(),
       normalizeYear(req.body.year),
-      (req.body.semester || '').trim(),
+      normalizeSemester(req.body.semester),
       (req.body.teacher || '').trim(),
       req.user.id,
     ]
@@ -195,7 +208,7 @@ app.put('/api/courses/:id', requireAdmin, wrap(async (req, res) => {
       (req.body.department ?? course.department).trim(),
       (req.body.level ?? course.level).trim(),
       req.body.year !== undefined ? normalizeYear(req.body.year) : course.year,
-      (req.body.semester ?? course.semester).trim(),
+      req.body.semester !== undefined ? normalizeSemester(req.body.semester) : course.semester,
       (req.body.teacher ?? course.teacher).trim(),
       course.id,
     ]

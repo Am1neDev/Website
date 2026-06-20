@@ -20,7 +20,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const UPLOAD_DIR = path.join(ROOT, 'uploads');
+// UPLOAD_DIR lets hosts (e.g. Render) store uploads on a persistent disk.
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(ROOT, 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const PORT = process.env.PORT || 3000;

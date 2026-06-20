@@ -1,0 +1,35 @@
+# Render Blueprint for the Student Course Portal
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This provisions one Node web service with a persistent disk so the SQLite
+# database and uploaded files survive restarts and deploys.
+#
+# NOTE: Persistent disks require a paid instance type (e.g. "starter").
+# On the free plan the filesystem is ephemeral, so the database and uploads
+# reset on every deploy/restart — fine for a demo, not for real data.
+
+services:
+  - type: web
+    name: student-course-portal
+    runtime: node
+    plan: starter # needed for the persistent disk; use "free" for a throwaway demo
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/auth/me
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true # Render generates a strong random secret
+      - key: ADMIN_EMAIL
+        sync: false # set this yourself in the dashboard
+      - key: ADMIN_PASSWORD
+        sync: false # set this yourself in the dashboard
+      - key: MAX_UPLOAD_MB
+        value: "50"
+      - key: DATA_DIR
+        value: /var/data/db
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+    disk:
+      name: portal-storage
+      mountPath: /var/data
+      sizeGB: 1

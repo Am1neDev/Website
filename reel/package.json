@@ -1,0 +1,18 @@
+{
+  "name": "snapchat-plus-bns-reel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vertical (9:16) promo reel for BNS Store Snapchat+ offers, rendered to MP4 for TikTok.",
+  "scripts": {
+    "build": "node src/make-html.mjs",
+    "preview": "node src/preview.mjs",
+    "render": "node src/make-html.mjs && node src/capture.mjs"
+  },
+  "dependencies": {
+    "@fontsource/cairo": "^5.2.9",
+    "h264-mp4-encoder": "^1.0.12",
+    "playwright": "^1.49.0",
+    "pngjs": "^7.0.0"
+  }
+}

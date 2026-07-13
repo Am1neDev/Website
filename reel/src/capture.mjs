@@ -4,7 +4,7 @@ import HME from 'h264-mp4-encoder';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const W = 1080, H = 1920, FPS = 30, T = 14.0;
+const W = 1080, H = 1920, FPS = 24, T = 14.0;
 const FRAMES = Math.round(T * FPS);
 const OUT = process.argv[2] || 'snapchat-plus-bns-reel.mp4';
 const url = 'file://' + path.resolve('index.html');
@@ -17,7 +17,7 @@ encoder.height = H;
 encoder.frameRate = FPS;
 encoder.quantizationParameter = 18;   // lower = higher quality
 encoder.speed = 4;                     // 0 best..10 fastest
-encoder.groupOfPictures = 30;
+encoder.groupOfPictures = 24;
 encoder.initialize();
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--force-color-profile=srgb', '--disable-lcd-text'] });

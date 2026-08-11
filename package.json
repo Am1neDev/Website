@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "A course portal where students search classes and download files (Courses, TD, TP, exams) and admins manage content.",
   "type": "module",
-  "main": "src/server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "app": "electron .",
+    "dist:win": "electron-builder --win --x64"
   },
   "keywords": [
     "education",
@@ -27,5 +29,49 @@
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0"
+  },
+  "optionalDependencies": {
+    "@libsql/win32-x64-msvc": "^0.5.29"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.usdb.csfiles",
+    "productName": "USDB CS FILES",
+    "npmRebuild": false,
+    "files": [
+      "electron/**",
+      "src/**",
+      "public/**",
+      "package.json",
+      "!node_modules/@libsql/linux-*/**",
+      "!node_modules/@libsql/darwin-*/**"
+    ],
+    "directories": {
+      "output": "dist-app"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "USDB-CS-FILES-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "USDB-CS-FILES-Setup-${version}.exe",
+      "oneClick": true,
+      "perMachine": false
+    }
   }
 }

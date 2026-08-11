@@ -70,6 +70,32 @@ variables (defaults shown):
 > **Change these** via `.env` (or the `ADMIN_EMAIL` / `ADMIN_PASSWORD`
 > environment variables) before deploying anywhere real.
 
+## Desktop app (Windows .exe)
+
+The portal also ships as a native desktop app: an Electron shell runs the same
+Express server locally and opens it in its own window. Data lives in the user's
+AppData folder (`%APPDATA%/USDB CS FILES/` — SQLite database in `data/`,
+uploaded files in `uploads/`), so everything persists between launches with
+zero configuration.
+
+```bash
+# run the desktop app in development (any OS)
+npm run app
+
+# build the Windows executables (portable .exe + installer) into dist-app/
+npm run dist:win
+```
+
+Two artifacts are produced:
+
+- `USDB-CS-FILES-<version>-portable.exe` — single file, no install, just run it
+- `USDB-CS-FILES-Setup-<version>.exe` — one-click installer with Start-menu entry
+
+There is also a GitHub Actions workflow
+([`.github/workflows/build-desktop.yml`](./.github/workflows/build-desktop.yml))
+that builds both on demand (Actions → *Build desktop app* → Run workflow) and
+attaches them to the release when you push a `v*` tag.
+
 ## How roles work
 
 - **Anyone** can search and browse courses.

@@ -20,6 +20,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 const PORT = process.env.PORT || 3000;
+// The desktop (Electron) build sets HOST=127.0.0.1 so only this machine can connect.
+const HOST = process.env.HOST || '0.0.0.0';
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 50);
 const FILE_CATEGORIES = ['Course', 'TD', 'TP', 'Exam', 'Other'];
 // Academic years/programs a course can belong to. '' means "unassigned".
@@ -369,7 +371,7 @@ async function ensureAdmin() {
 async function start() {
   await initSchema();
   await ensureAdmin();
-  app.listen(PORT, () => {
+  app.listen(PORT, HOST, () => {
     console.log(`Student Course Portal running at http://localhost:${PORT}`);
     console.log(`  database: ${usingTurso ? 'Turso (cloud)' : 'local SQLite file'}`);
     console.log(`  file storage: ${storageBackend === 'supabase' ? 'Supabase Storage' : 'local disk'}`);

@@ -3,6 +3,8 @@ name: Build desktop app (.exe)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - 'claude/build-exe-app-dqqv33'
     tags:
       - 'v*'
 
